@@ -97,17 +97,17 @@
 
   <!-- 2. MAIN APPLICATION -->
   <div id="appContainer" style="display: none;">
-    <header class="bg-blue-900 text-white px-3 py-2.5 shadow sticky top-0 z-40 flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2 min-w-0">
-        <img src="https://www.intellismartinfra.in/_nuxt/img/new_logo_intellismart.78cdbbb.jpg" alt="Logo" class="h-7 w-auto object-contain rounded bg-white/10 p-0.5 shrink-0">
-        <h1 class="text-sm sm:text-base font-bold tracking-tight truncate">Smart Meter QC</h1>
+    <header class="bg-blue-900 text-white px-4 py-3 shadow sticky top-0 z-40 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5">
+        <img src="https://www.intellismartinfra.in/_nuxt/img/new_logo_intellismart.78cdbbb.jpg" alt="Logo" class="h-8 w-auto max-w-[100px] object-contain rounded bg-white/10 p-0.5 shrink-0">
+        <h1 class="text-base font-bold tracking-wide leading-tight">Smart Meter QC Scanner</h1>
       </div>
-      <div class="flex items-center gap-1.5 shrink-0">
-        <label class="bg-blue-700 hover:bg-blue-600 text-[11px] sm:text-xs px-2.5 py-1.5 rounded-lg cursor-pointer flex items-center gap-1 font-medium transition active:scale-95 shadow whitespace-nowrap">
+      <div class="flex items-center gap-2 shrink-0">
+        <label class="bg-blue-700 hover:bg-blue-600 text-xs px-3 py-1.5 rounded-lg cursor-pointer flex items-center gap-1 font-medium transition active:scale-95 shadow">
           📁 <span>Select CSV</span>
           <input type="file" id="excelInput" accept="*/*, text/*, application/*, .csv" class="hidden">
         </label>
-        <button id="logoutBtn" onclick="lockApp()" title="Lock App" class="bg-slate-800 hover:bg-slate-700 text-xs px-2 py-1.5 rounded-lg text-slate-300 shrink-0">
+        <button id="logoutBtn" onclick="lockApp()" title="Lock App" class="bg-slate-800 hover:bg-slate-700 text-xs px-2.5 py-1.5 rounded-lg text-slate-300">
           🔒
         </button>
       </div>
@@ -130,7 +130,7 @@
         </div>
       </div>
 
-      <!-- Scanned Export Bar -->
+      <!-- Scanned Export Bar (Single Line) -->
       <div id="exportBar" class="bg-white border border-slate-200 rounded-xl px-3 py-2 flex items-center justify-between gap-2 shadow-sm">
         <div class="flex items-center gap-1.5 text-xs whitespace-nowrap">
           <span class="text-slate-500 font-medium">Scanned:</span>
@@ -148,8 +148,6 @@
 
       <!-- Scanner Controls -->
       <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-3.5 space-y-3">
-        
-        <!-- Compact Fast Scanner Wrapper -->
         <div id="scannerWrapper" class="hidden">
           <video id="nativeVideo" class="hidden" playsinline muted></video>
           <div id="reader" class="hidden"></div>
@@ -283,7 +281,7 @@
       if (isScanning) stopScanner();
     }
 
-    // --- DATABASE INITIALIZATION ---
+    // --- DATABASE INITIALIZATION + AUTO MIGRATION FROM OLD DB ---
     function initDB() {
       const statusBox = document.getElementById('statusContainer');
       const statusText = document.getElementById('statusText');
@@ -326,15 +324,80 @@
           const count = countReq.result;
           const statusBox = document.getElementById('statusContainer');
           const statusText = document.getElementById('statusText');
+
           if (count > 0) {
             statusBox.className = "bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
             statusText.innerHTML = `<span>✅ <b>${count.toLocaleString()}</b> Records Offline Ready</span>`;
           } else {
-            statusBox.className = "bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
-            statusText.innerHTML = `<span>⚠️ No Data. Click <b>Select CSV</b> to load MI report.</span>`;
+            // Try auto-recovering records from previous DB version if available
+            migrateFromLegacyDB();
           }
         };
       } catch (err) {}
+    }
+
+    function migrateFromLegacyDB() {
+      const statusBox = document.getElementById('statusContainer');
+      const statusText = document.getElementById('statusText');
+
+      try {
+        const legacyReq = indexedDB.open("MeterQCStore_StatusPlacementV2", 1);
+        legacyReq.onupgradeneeded = function(e) {
+          // If it didn't exist before, abort creation
+          e.target.transaction.abort();
+        };
+        legacyReq.onsuccess = function(e) {
+          const oldDb = e.target.result;
+          if (!oldDb.objectStoreNames.contains("meters")) {
+            oldDb.close();
+            showNoDataWarning();
+            return;
+          }
+
+          const oldTx = oldDb.transaction("meters", "readonly");
+          const oldStore = oldTx.objectStore("meters");
+          const countReq = oldStore.count();
+
+          countReq.onsuccess = function() {
+            if (countReq.result === 0) {
+              oldDb.close();
+              showNoDataWarning();
+              return;
+            }
+
+            statusBox.className = "bg-blue-50 border border-blue-200 text-blue-900 text-xs px-3 py-2 rounded-xl";
+            statusText.innerHTML = `<span>⏳ Restoring previous <b>${countReq.result.toLocaleString()}</b> records...</span>`;
+
+            const getAllReq = oldStore.getAll();
+            getAllReq.onsuccess = function() {
+              const allRecords = getAllReq.result || [];
+              oldDb.close();
+
+              const newTx = db.transaction("meters", "readwrite");
+              const newStore = newTx.objectStore("meters");
+              for (let i = 0; i < allRecords.length; i++) {
+                newStore.add(allRecords[i]);
+              }
+              newTx.oncomplete = function() {
+                statusBox.className = "bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
+                statusText.innerHTML = `<span>✅ <b>${allRecords.length.toLocaleString()}</b> Records Offline Ready</span>`;
+              };
+            };
+          };
+        };
+        legacyReq.onerror = function() {
+          showNoDataWarning();
+        };
+      } catch (err) {
+        showNoDataWarning();
+      }
+    }
+
+    function showNoDataWarning() {
+      const statusBox = document.getElementById('statusContainer');
+      const statusText = document.getElementById('statusText');
+      statusBox.className = "bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
+      statusText.innerHTML = `<span>⚠️ No Data. Click <b>Select CSV</b> to load MI report.</span>`;
     }
 
     // --- SCANNED LOG MANAGEMENT (FULL MI REPORT COLUMNS) ---
@@ -389,7 +452,8 @@
           scanTime: timestamp,
           barcode: record.barcode || '',
           newMeter: record.newMeter || '',
-          rawRow: record.rawRow || []
+          recordFallback: record,
+          rawRow: record.rawRow || null
         });
 
         tx.oncomplete = function() {
@@ -430,17 +494,39 @@
           return `"${str}"`;
         };
 
-        const fullHeaders = ["Sr No", "Scan Time", ...savedHeaders.map(h => escapeCSV(h))];
-        const rows = [fullHeaders.join(",")];
+        const hasFullRows = items.some(it => Array.isArray(it.rawRow) && it.rawRow.length > 0);
 
-        items.forEach((item, index) => {
-          const rawCols = Array.isArray(item.rawRow) ? item.rawRow : [];
-          rows.push([
-            index + 1,
-            escapeCSV(item.scanTime),
-            ...rawCols.map(cell => escapeCSV(cell))
-          ].join(","));
-        });
+        let rows = [];
+        if (hasFullRows && savedHeaders.length > 0) {
+          const fullHeaders = ["Sr No", "Scan Time", ...savedHeaders.map(h => escapeCSV(h))];
+          rows.push(fullHeaders.join(","));
+
+          items.forEach((item, index) => {
+            const rawCols = Array.isArray(item.rawRow) ? item.rawRow : [];
+            rows.push([
+              index + 1,
+              escapeCSV(item.scanTime),
+              ...rawCols.map(cell => escapeCSV(cell))
+            ].join(","));
+          });
+        } else {
+          // Fallback if migrated from old DB before fresh CSV re-upload
+          const fallbackHeaders = ["Sr No", "Scan Time", "Consumer ID", "Consumer Name", "Old Meter No", "New Meter No", "Barcode Sticker", "QC Status"];
+          rows.push(fallbackHeaders.join(","));
+          items.forEach((item, index) => {
+            const r = item.recordFallback || {};
+            rows.push([
+              index + 1,
+              escapeCSV(item.scanTime),
+              escapeCSV(r.consumerId),
+              escapeCSV(r.consumerName),
+              escapeCSV(r.oldMeter),
+              escapeCSV(r.newMeter),
+              escapeCSV(r.barcode),
+              escapeCSV(r.qcStatus)
+            ].join(","));
+          });
+        }
 
         const csvContent = "\uFEFF" + rows.join("\n");
         const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -752,7 +838,7 @@
         searchRecord(cleanVal);
       };
 
-      // 1. Fast Path: Direct Hardware BarcodeDetector + Instant getUserMedia (No getCameras() delay)
+      // 1. Fast Path: Direct Hardware BarcodeDetector + Instant getUserMedia
       if ('BarcodeDetector' in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
           nativeVid.classList.remove('hidden');
@@ -792,12 +878,11 @@
           scanLoopId = requestAnimationFrame(detectFrame);
           return;
         } catch (err) {
-          // Fallback to html5-qrcode below if native stream fails
           nativeVid.classList.add('hidden');
         }
       }
 
-      // 2. Lightweight Fallback: Direct facingMode without device enumeration overhead
+      // 2. Lightweight Fallback
       try {
         readerDiv.classList.remove('hidden');
         readerDiv.innerHTML = "";
