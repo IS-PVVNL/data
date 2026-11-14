@@ -14,7 +14,7 @@
     #scannerWrapper {
       width: 100%;
       max-width: 320px;
-      height: 240px;
+      height: 230px;
       margin: 0 auto;
       border-radius: 1rem;
       position: relative;
@@ -39,7 +39,7 @@
       left: 50%;
       transform: translate(-50%, -50%);
       width: 190px;
-      height: 170px;
+      height: 165px;
       pointer-events: none;
       z-index: 20;
     }
@@ -56,7 +56,7 @@
 
     @keyframes scanLaser {
       0% { transform: translateY(6px); }
-      100% { transform: translateY(158px); }
+      100% { transform: translateY(152px); }
     }
     .laser-line {
       position: absolute;
@@ -97,17 +97,19 @@
 
   <!-- 2. MAIN APPLICATION -->
   <div id="appContainer" style="display: none;">
-    <header class="bg-blue-900 text-white px-4 py-3 shadow sticky top-0 z-40 flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2.5">
-        <img src="https://www.intellismartinfra.in/_nuxt/img/new_logo_intellismart.78cdbbb.jpg" alt="Logo" class="h-8 w-auto max-w-[100px] object-contain rounded bg-white/10 p-0.5 shrink-0">
-        <h1 class="text-base font-bold tracking-wide leading-tight">Smart Meter QC Scanner</h1>
+    <!-- Clean 2-Line Header + 2-Line Select CSV Button -->
+    <header class="bg-blue-900 text-white px-3 py-2.5 shadow sticky top-0 z-40 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <img src="https://www.intellismartinfra.in/_nuxt/img/new_logo_intellismart.78cdbbb.jpg" alt="Logo" class="h-7 w-auto object-contain rounded bg-white/10 p-0.5 shrink-0">
+        <h1 class="text-xs sm:text-sm font-bold leading-tight">Smart Meter QC<br>Scanner</h1>
       </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <label class="bg-blue-700 hover:bg-blue-600 text-xs px-3 py-1.5 rounded-lg cursor-pointer flex items-center gap-1 font-medium transition active:scale-95 shadow">
-          📁 <span>Select CSV</span>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <label class="bg-blue-700 hover:bg-blue-600 text-[11px] leading-tight px-2.5 py-1 rounded-lg cursor-pointer flex items-center gap-1.5 font-medium transition active:scale-95 shadow">
+          <span>📁</span>
+          <span>Select<br>CSV</span>
           <input type="file" id="excelInput" accept="*/*, text/*, application/*, .csv" class="hidden">
         </label>
-        <button id="logoutBtn" onclick="lockApp()" title="Lock App" class="bg-slate-800 hover:bg-slate-700 text-xs px-2.5 py-1.5 rounded-lg text-slate-300">
+        <button id="logoutBtn" onclick="lockApp()" title="Lock App" class="bg-slate-800 hover:bg-slate-700 text-xs px-2 py-2 rounded-lg text-slate-300">
           🔒
         </button>
       </div>
@@ -159,6 +161,23 @@
             <span class="corner bot-r"></span>
             <div class="laser-line"></div>
           </div>
+
+          <!-- Live Mode Badge -->
+          <div class="absolute bottom-2 inset-x-0 text-center z-30 pointer-events-none">
+            <span id="scanPulseBadge" class="bg-black/75 text-emerald-300 text-[10px] font-semibold px-2.5 py-0.5 rounded-full">
+              ⚡ Continuous Scan Active
+            </span>
+          </div>
+        </div>
+
+        <!-- Scan Mode Selector (Single vs Continuous) -->
+        <div class="grid grid-cols-2 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
+          <button type="button" id="modeSingleBtn" onclick="setScanMode('single')" class="py-1.5 rounded-lg transition text-slate-600">
+            🎯 Single Scan
+          </button>
+          <button type="button" id="modeContinuousBtn" onclick="setScanMode('continuous')" class="py-1.5 rounded-lg transition bg-white text-blue-900 shadow-sm">
+            ⚡ Continuous Scan
+          </button>
         </div>
         
         <button id="scanBtn" class="w-full py-3.5 bg-blue-800 hover:bg-blue-900 text-white font-semibold rounded-xl flex items-center justify-center gap-2 shadow transition active:scale-95">
@@ -175,9 +194,9 @@
       </div>
 
       <!-- Result Card -->
-      <div id="resultCard" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3.5">
+      <div id="resultCard" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3.5 transition-all">
         <div id="duplicateAlert" class="hidden bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold px-3 py-1.5 rounded-lg text-center">
-          ⚠️ Yeh meter pehle se scanned list me added hai!
+          ⚠️ This meter is already added to the scanned list!
         </div>
 
         <div class="space-y-2.5 text-sm">
@@ -240,8 +259,47 @@
   <script>
     const REQUIRED_KEY = "Pvvnl@123";
     let db = null;
+    let audioCtx = null;
+    let scanMode = localStorage.getItem("qcScanMode") || "single"; // 'single' or 'continuous'
+
+    function setScanMode(mode) {
+      scanMode = mode;
+      localStorage.setItem("qcScanMode", mode);
+      const singleBtn = document.getElementById('modeSingleBtn');
+      const contBtn = document.getElementById('modeContinuousBtn');
+      const pulseBadge = document.getElementById('scanPulseBadge');
+
+      if (mode === 'single') {
+        singleBtn.className = "py-1.5 rounded-lg transition bg-white text-blue-900 shadow-sm";
+        contBtn.className = "py-1.5 rounded-lg transition text-slate-600";
+        if (pulseBadge) pulseBadge.innerText = "🎯 Single Scan (Auto-Close)";
+      } else {
+        contBtn.className = "py-1.5 rounded-lg transition bg-white text-blue-900 shadow-sm";
+        singleBtn.className = "py-1.5 rounded-lg transition text-slate-600";
+        if (pulseBadge) pulseBadge.innerText = "⚡ Continuous Scan Active";
+      }
+    }
+
+    function playScanBeep() {
+      try {
+        if (navigator.vibrate) navigator.vibrate(60);
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1150, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.09);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.09);
+      } catch (e) {}
+    }
 
     function checkAuth() {
+      setScanMode(scanMode);
       if (sessionStorage.getItem("isAppUnlocked") === "true") {
         document.getElementById('loginScreen').style.display = 'none';
         document.getElementById('appContainer').style.display = 'block';
@@ -281,7 +339,7 @@
       if (isScanning) stopScanner();
     }
 
-    // --- DATABASE INITIALIZATION + AUTO MIGRATION FROM OLD DB ---
+    // --- DATABASE INITIALIZATION ---
     function initDB() {
       const statusBox = document.getElementById('statusContainer');
       const statusText = document.getElementById('statusText');
@@ -293,7 +351,7 @@
       }
 
       try {
-        const req = indexedDB.open("MeterQCStore_FullDataV3", 1);
+        const req = indexedDB.open("MeterQCStore_StatusPlacementV2", 2);
         req.onupgradeneeded = function(e) {
           const d = e.target.result;
           if (!d.objectStoreNames.contains("meters")) {
@@ -302,9 +360,7 @@
             store.createIndex("newMeter", "newMeter", { unique: false });
           }
           if (!d.objectStoreNames.contains("scanned_log")) {
-            const logStore = d.createObjectStore("scanned_log", { keyPath: "id", autoIncrement: true });
-            logStore.createIndex("barcode", "barcode", { unique: false });
-            logStore.createIndex("newMeter", "newMeter", { unique: false });
+            d.createObjectStore("scanned_log", { keyPath: "id", autoIncrement: true });
           }
         };
         req.onsuccess = function(e) {
@@ -324,85 +380,20 @@
           const count = countReq.result;
           const statusBox = document.getElementById('statusContainer');
           const statusText = document.getElementById('statusText');
-
           if (count > 0) {
             statusBox.className = "bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
             statusText.innerHTML = `<span>✅ <b>${count.toLocaleString()}</b> Records Offline Ready</span>`;
           } else {
-            // Try auto-recovering records from previous DB version if available
-            migrateFromLegacyDB();
+            statusBox.className = "bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
+            statusText.innerHTML = `<span>⚠️ No Data. Click <b>Select CSV</b> to load MI report.</span>`;
           }
         };
       } catch (err) {}
     }
 
-    function migrateFromLegacyDB() {
-      const statusBox = document.getElementById('statusContainer');
-      const statusText = document.getElementById('statusText');
-
-      try {
-        const legacyReq = indexedDB.open("MeterQCStore_StatusPlacementV2", 1);
-        legacyReq.onupgradeneeded = function(e) {
-          // If it didn't exist before, abort creation
-          e.target.transaction.abort();
-        };
-        legacyReq.onsuccess = function(e) {
-          const oldDb = e.target.result;
-          if (!oldDb.objectStoreNames.contains("meters")) {
-            oldDb.close();
-            showNoDataWarning();
-            return;
-          }
-
-          const oldTx = oldDb.transaction("meters", "readonly");
-          const oldStore = oldTx.objectStore("meters");
-          const countReq = oldStore.count();
-
-          countReq.onsuccess = function() {
-            if (countReq.result === 0) {
-              oldDb.close();
-              showNoDataWarning();
-              return;
-            }
-
-            statusBox.className = "bg-blue-50 border border-blue-200 text-blue-900 text-xs px-3 py-2 rounded-xl";
-            statusText.innerHTML = `<span>⏳ Restoring previous <b>${countReq.result.toLocaleString()}</b> records...</span>`;
-
-            const getAllReq = oldStore.getAll();
-            getAllReq.onsuccess = function() {
-              const allRecords = getAllReq.result || [];
-              oldDb.close();
-
-              const newTx = db.transaction("meters", "readwrite");
-              const newStore = newTx.objectStore("meters");
-              for (let i = 0; i < allRecords.length; i++) {
-                newStore.add(allRecords[i]);
-              }
-              newTx.oncomplete = function() {
-                statusBox.className = "bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
-                statusText.innerHTML = `<span>✅ <b>${allRecords.length.toLocaleString()}</b> Records Offline Ready</span>`;
-              };
-            };
-          };
-        };
-        legacyReq.onerror = function() {
-          showNoDataWarning();
-        };
-      } catch (err) {
-        showNoDataWarning();
-      }
-    }
-
-    function showNoDataWarning() {
-      const statusBox = document.getElementById('statusContainer');
-      const statusText = document.getElementById('statusText');
-      statusBox.className = "bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
-      statusText.innerHTML = `<span>⚠️ No Data. Click <b>Select CSV</b> to load MI report.</span>`;
-    }
-
     // --- SCANNED LOG MANAGEMENT (FULL MI REPORT COLUMNS) ---
     function updateScannedCountUI() {
-      if (!db) return;
+      if (!db || !db.objectStoreNames.contains("scanned_log")) return;
       try {
         const tx = db.transaction("scanned_log", "readonly");
         const countReq = tx.objectStore("scanned_log").count();
@@ -425,7 +416,7 @@
     }
 
     function addToScannedLog(record) {
-      if (!db) return;
+      if (!db || !db.objectStoreNames.contains("scanned_log")) return;
       const dupAlert = document.getElementById('duplicateAlert');
 
       const tx = db.transaction("scanned_log", "readwrite");
@@ -464,7 +455,7 @@
 
     function clearScannedLog() {
       if (!db) return;
-      if (confirm("Kya aap scanned meters ki list clear karna chahte hain?")) {
+      if (confirm("Are you sure you want to clear the scanned meters list?")) {
         const tx = db.transaction("scanned_log", "readwrite");
         tx.objectStore("scanned_log").clear();
         tx.oncomplete = function() {
@@ -474,73 +465,96 @@
       }
     }
 
-    function downloadScannedCSV() {
+    async function downloadScannedCSV() {
       if (!db) return;
-      const tx = db.transaction("scanned_log", "readonly");
-      const req = tx.objectStore("scanned_log").getAll();
 
-      req.onsuccess = function() {
-        const items = req.result || [];
-        if (items.length === 0) return;
+      const tx = db.transaction(["scanned_log", "meters"], "readonly");
+      const logStore = tx.objectStore("scanned_log");
+      const metersStore = tx.objectStore("meters");
+      const barcodeIdx = metersStore.index("barcode");
+      const newMeterIdx = metersStore.index("newMeter");
 
-        let savedHeaders = [];
-        try {
-          const hStr = localStorage.getItem("miReportHeaders");
-          if (hStr) savedHeaders = JSON.parse(hStr);
-        } catch (e) {}
+      const items = await new Promise(res => {
+        const r = logStore.getAll();
+        r.onsuccess = () => res(r.result || []);
+      });
 
-        const escapeCSV = (val) => {
-          const str = String(val !== undefined && val !== null ? val : '').replace(/"/g, '""');
-          return `"${str}"`;
-        };
+      if (items.length === 0) return;
 
-        const hasFullRows = items.some(it => Array.isArray(it.rawRow) && it.rawRow.length > 0);
+      let savedHeaders = [];
+      try {
+        const hStr = localStorage.getItem("miReportHeaders");
+        if (hStr) savedHeaders = JSON.parse(hStr);
+      } catch (e) {}
 
-        let rows = [];
-        if (hasFullRows && savedHeaders.length > 0) {
-          const fullHeaders = ["Sr No", "Scan Time", ...savedHeaders.map(h => escapeCSV(h))];
-          rows.push(fullHeaders.join(","));
+      const resolvedRows = [];
+      for (const item of items) {
+        let rawCols = Array.isArray(item.rawRow) && item.rawRow.length > 0 ? item.rawRow : null;
 
-          items.forEach((item, index) => {
-            const rawCols = Array.isArray(item.rawRow) ? item.rawRow : [];
-            rows.push([
-              index + 1,
-              escapeCSV(item.scanTime),
-              ...rawCols.map(cell => escapeCSV(cell))
-            ].join(","));
+        if (!rawCols) {
+          const freshRec = await new Promise(res => {
+            if (item.barcode) {
+              const q1 = barcodeIdx.get(item.barcode);
+              q1.onsuccess = () => {
+                if (q1.result && Array.isArray(q1.result.rawRow)) return res(q1.result);
+                if (item.newMeter) {
+                  const q2 = newMeterIdx.get(item.newMeter);
+                  q2.onsuccess = () => res(q2.result || null);
+                } else {
+                  res(null);
+                }
+              };
+            } else if (item.newMeter) {
+              const q2 = newMeterIdx.get(item.newMeter);
+              q2.onsuccess = () => res(q2.result || null);
+            } else {
+              res(null);
+            }
           });
-        } else {
-          // Fallback if migrated from old DB before fresh CSV re-upload
-          const fallbackHeaders = ["Sr No", "Scan Time", "Consumer ID", "Consumer Name", "Old Meter No", "New Meter No", "Barcode Sticker", "QC Status"];
-          rows.push(fallbackHeaders.join(","));
-          items.forEach((item, index) => {
-            const r = item.recordFallback || {};
-            rows.push([
-              index + 1,
-              escapeCSV(item.scanTime),
-              escapeCSV(r.consumerId),
-              escapeCSV(r.consumerName),
-              escapeCSV(r.oldMeter),
-              escapeCSV(r.newMeter),
-              escapeCSV(r.barcode),
-              escapeCSV(r.qcStatus)
-            ].join(","));
-          });
+
+          if (freshRec && Array.isArray(freshRec.rawRow)) {
+            rawCols = freshRec.rawRow;
+          }
         }
 
-        const csvContent = "\uFEFF" + rows.join("\n");
-        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
+        resolvedRows.push({ item, rawCols });
+      }
 
-        const dateStr = new Date().toISOString().slice(0, 10);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `Scanned_MI_Report_${dateStr}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+      const allHaveFullData = resolvedRows.every(r => r.rawCols && r.rawCols.length > 0);
+
+      if (!allHaveFullData || savedHeaders.length === 0) {
+        alert("To download complete MI Report columns, please re-import your MI Report CSV once using 'Select CSV' at the top.");
+        return;
+      }
+
+      const escapeCSV = (val) => {
+        const str = String(val !== undefined && val !== null ? val : '').replace(/"/g, '""');
+        return `"${str}"`;
       };
+
+      const fullHeaders = ["Sr No", "Scan Time", ...savedHeaders.map(h => escapeCSV(h))];
+      const csvRows = [fullHeaders.join(",")];
+
+      resolvedRows.forEach(({ item, rawCols }, index) => {
+        csvRows.push([
+          index + 1,
+          escapeCSV(item.scanTime),
+          ...rawCols.map(cell => escapeCSV(cell))
+        ].join(","));
+      });
+
+      const csvContent = "\uFEFF" + csvRows.join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Scanned_MI_Report_${dateStr}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
 
     // --- CSV STREAM PROCESSOR ---
@@ -809,11 +823,13 @@
       if (e.key === 'Enter') searchRecord(e.target.value);
     });
 
-    // --- ZERO-LATENCY HARDWARE SCANNER ENGINE ---
+    // --- DUAL-MODE SCANNER ENGINE (SINGLE + CONTINUOUS) ---
     let isScanning = false;
     let mediaStream = null;
     let scanLoopId = null;
     let html5QrCode = null;
+    let lastScannedCode = "";
+    let lastScannedTime = 0;
 
     document.getElementById('scanBtn').addEventListener('click', async () => {
       if (isScanning) {
@@ -825,20 +841,48 @@
       const nativeVid = document.getElementById('nativeVideo');
       const readerDiv = document.getElementById('reader');
       const btnText = document.getElementById('scanBtnText');
+      const pulseBadge = document.getElementById('scanPulseBadge');
 
       wrapper.classList.remove('hidden');
       btnText.innerText = "Stop Scanner";
+      pulseBadge.innerText = scanMode === 'single' ? "🎯 Single Scan (Auto-Close)" : "⚡ Continuous Scan Active";
       isScanning = true;
+      lastScannedCode = "";
 
       const handleDecoded = (rawText) => {
         if (!isScanning) return;
-        const cleanVal = cleanScanText(rawText);
+        const cleanVal = cleanScanText(rawText).toUpperCase();
+        const now = Date.now();
+
+        if (scanMode === 'single') {
+          playScanBeep();
+          document.getElementById('manualInput').value = cleanVal;
+          stopScanner();
+          searchRecord(cleanVal);
+          return;
+        }
+
+        // Continuous Mode: 1.8s cooldown for same barcode so user can scan next meter smoothly
+        if (cleanVal === lastScannedCode && (now - lastScannedTime) < 1800) {
+          return;
+        }
+
+        lastScannedCode = cleanVal;
+        lastScannedTime = now;
+
+        playScanBeep();
         document.getElementById('manualInput').value = cleanVal;
-        stopScanner();
         searchRecord(cleanVal);
+
+        pulseBadge.innerText = `✅ Scanned: ${cleanVal}`;
+        setTimeout(() => {
+          if (isScanning && scanMode === 'continuous') {
+            pulseBadge.innerText = "⚡ Continuous Scan Active";
+          }
+        }, 1200);
       };
 
-      // 1. Fast Path: Direct Hardware BarcodeDetector + Instant getUserMedia
+      // 1. Direct Native Hardware BarcodeDetector
       if ('BarcodeDetector' in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
           nativeVid.classList.remove('hidden');
@@ -868,7 +912,7 @@
                 const codes = await detector.detect(nativeVid);
                 if (codes && codes.length > 0) {
                   handleDecoded(codes[0].rawValue);
-                  return;
+                  if (!isScanning) return;
                 }
               } catch (e) {}
             }
@@ -882,7 +926,7 @@
         }
       }
 
-      // 2. Lightweight Fallback
+      // 2. Fallback Mode
       try {
         readerDiv.classList.remove('hidden');
         readerDiv.innerHTML = "";
@@ -895,7 +939,7 @@
           () => {}
         );
       } catch (fallbackErr) {
-        alert("Camera start nahi ho saka. Browser settings me camera permission allow karein.");
+        alert("Unable to start camera. Please allow camera permission in your browser settings.");
         stopScanner();
       }
     });
