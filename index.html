@@ -97,19 +97,19 @@
 
   <!-- 2. MAIN APPLICATION -->
   <div id="appContainer" style="display: none;">
-    <!-- Clean 2-Line Header + 2-Line Select CSV Button -->
+    <!-- Locked Exact 2-Line Title + 2-Line Select CSV Button -->
     <header class="bg-blue-900 text-white px-3 py-2.5 shadow sticky top-0 z-40 flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 min-w-0">
         <img src="https://www.intellismartinfra.in/_nuxt/img/new_logo_intellismart.78cdbbb.jpg" alt="Logo" class="h-7 w-auto object-contain rounded bg-white/10 p-0.5 shrink-0">
-        <h1 class="text-xs sm:text-sm font-bold leading-tight">Smart Meter QC<br>Scanner</h1>
+        <h1 class="text-[13px] sm:text-sm font-bold leading-tight whitespace-nowrap">Smart Meter QC<br>Scanner</h1>
       </div>
       <div class="flex items-center gap-1.5 shrink-0">
-        <label class="bg-blue-700 hover:bg-blue-600 text-[11px] leading-tight px-2.5 py-1 rounded-lg cursor-pointer flex items-center gap-1.5 font-medium transition active:scale-95 shadow">
+        <label class="bg-blue-700 hover:bg-blue-600 text-[11px] leading-tight px-2.5 py-1 rounded-lg cursor-pointer flex items-center gap-1 font-medium transition active:scale-95 shadow whitespace-nowrap">
           <span>📁</span>
           <span>Select<br>CSV</span>
           <input type="file" id="excelInput" accept="*/*, text/*, application/*, .csv" class="hidden">
         </label>
-        <button id="logoutBtn" onclick="lockApp()" title="Lock App" class="bg-slate-800 hover:bg-slate-700 text-xs px-2 py-2 rounded-lg text-slate-300">
+        <button id="logoutBtn" onclick="lockApp()" title="Lock App" class="bg-slate-800 hover:bg-slate-700 text-xs px-2 py-2 rounded-lg text-slate-300 shrink-0">
           🔒
         </button>
       </div>
@@ -117,9 +117,9 @@
 
     <main class="max-w-md mx-auto p-3.5 space-y-3.5">
       <!-- Database Status & Progress -->
-      <div id="statusContainer" class="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-xl space-y-1.5">
+      <div id="statusContainer" class="bg-slate-200/70 border border-slate-300 text-slate-700 text-xs px-3 py-2 rounded-xl space-y-1.5">
         <div id="statusText" class="font-medium flex items-center justify-between">
-          <span>⚠️ Checking offline database...</span>
+          <span>⏳ Loading offline records...</span>
         </div>
         <div id="progressBox" class="hidden space-y-1">
           <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
@@ -339,18 +339,13 @@
       if (isScanning) stopScanner();
     }
 
-    // --- UNBLOCKED DATABASE ENGINE (VERSION 1 + AUTO COPY FROM ANY OLD STORE) ---
+    // --- ZERO-FLICKER DATABASE INITIALIZATION ---
     function initDB() {
-      const statusBox = document.getElementById('statusContainer');
-      const statusText = document.getElementById('statusText');
-
       if (!window.indexedDB) {
-        statusBox.className = "bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2.5 rounded-xl";
-        statusText.innerHTML = "<span>⚠️ IndexedDB not supported in this browser.</span>";
+        showNoDataBanner();
         return;
       }
 
-      // Safety fallback if IndexedDB hangs
       const hangTimer = setTimeout(() => {
         if (!db) showNoDataBanner();
       }, 3000);
@@ -398,7 +393,7 @@
           if (count > 0) {
             setReadyBanner(count);
           } else {
-            // Auto-recover from previous DBs (V2 or V3) without blocking
+            // Silently resolve from previous DBs before showing any warning banner
             tryCopyFromOldDB("MeterQCStore_StatusPlacementV2", (copied) => {
               if (!copied) {
                 tryCopyFromOldDB("MeterQCStore_FullDataV3", (copiedV3) => {
@@ -423,7 +418,6 @@
         }
       };
 
-      // Never wait more than 1.5s if old DB is locked
       const timeout = setTimeout(() => done(false), 1500);
 
       try {
