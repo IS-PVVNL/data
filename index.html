@@ -339,7 +339,7 @@
       if (isScanning) stopScanner();
     }
 
-    // --- ROBUST DATABASE INITIALIZATION (HANDLES BLOCKED/VERSION UPGRADES) ---
+    // --- UNBLOCKED DATABASE ENGINE (VERSION 1 + AUTO COPY FROM ANY OLD STORE) ---
     function initDB() {
       const statusBox = document.getElementById('statusContainer');
       const statusText = document.getElementById('statusText');
@@ -350,8 +350,13 @@
         return;
       }
 
+      // Safety fallback if IndexedDB hangs
+      const hangTimer = setTimeout(() => {
+        if (!db) showNoDataBanner();
+      }, 3000);
+
       try {
-        const req = indexedDB.open("MeterQCStore_StatusPlacementV2", 2);
+        const req = indexedDB.open("MeterQCStore_LiveV4", 1);
 
         req.onupgradeneeded = function(e) {
           const d = e.target.result;
@@ -365,29 +370,21 @@
           }
         };
 
-        req.onblocked = function() {
-          statusBox.className = "bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-xl";
-          statusText.innerHTML = "<span>⚠️ Close other open tabs of this app and refresh.</span>";
-        };
-
-        req.onerror = function(e) {
-          console.error("DB Error:", e.target.error);
-          statusBox.className = "bg-red-50 border border-red-200 text-red-800 text-xs px-3 py-2 rounded-xl";
-          statusText.innerHTML = "<span>❌ Database error. Please refresh page.</span>";
+        req.onerror = function() {
+          clearTimeout(hangTimer);
+          showNoDataBanner();
         };
 
         req.onsuccess = function(e) {
+          clearTimeout(hangTimer);
           db = e.target.result;
-          // Auto-close connection if another tab upgrades DB in future
-          db.onversionchange = function() {
-            db.close();
-          };
+          db.onversionchange = function() { db.close(); };
           checkStoredCount();
           updateScannedCountUI();
         };
       } catch (e) {
-        statusBox.className = "bg-red-50 border border-red-200 text-red-800 text-xs px-3 py-2 rounded-xl";
-        statusText.innerHTML = "<span>❌ Failed to access offline storage.</span>";
+        clearTimeout(hangTimer);
+        showNoDataBanner();
       }
     }
 
@@ -398,60 +395,92 @@
         const countReq = tx.objectStore("meters").count();
         countReq.onsuccess = function() {
           const count = countReq.result;
-          const statusBox = document.getElementById('statusContainer');
-          const statusText = document.getElementById('statusText');
           if (count > 0) {
-            statusBox.className = "bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
-            statusText.innerHTML = `<span>✅ <b>${count.toLocaleString()}</b> Records Offline Ready</span>`;
+            setReadyBanner(count);
           } else {
-            recoverFromV3IfAvailable();
+            // Auto-recover from previous DBs (V2 or V3) without blocking
+            tryCopyFromOldDB("MeterQCStore_StatusPlacementV2", (copied) => {
+              if (!copied) {
+                tryCopyFromOldDB("MeterQCStore_FullDataV3", (copiedV3) => {
+                  if (!copiedV3) showNoDataBanner();
+                });
+              }
+            });
           }
         };
+        countReq.onerror = () => showNoDataBanner();
       } catch (err) {
         showNoDataBanner();
       }
     }
 
-    function recoverFromV3IfAvailable() {
+    function tryCopyFromOldDB(dbName, callback) {
+      let finished = false;
+      const done = (val) => {
+        if (!finished) {
+          finished = true;
+          callback(val);
+        }
+      };
+
+      // Never wait more than 1.5s if old DB is locked
+      const timeout = setTimeout(() => done(false), 1500);
+
       try {
-        const v3Req = indexedDB.open("MeterQCStore_FullDataV3", 1);
-        v3Req.onupgradeneeded = function(e) {
-          e.target.transaction.abort();
+        const req = indexedDB.open(dbName);
+        req.onblocked = () => {
+          clearTimeout(timeout);
+          done(false);
         };
-        v3Req.onsuccess = function(e) {
-          const v3Db = e.target.result;
-          if (!v3Db.objectStoreNames.contains("meters")) {
-            v3Db.close();
-            showNoDataBanner();
+        req.onerror = () => {
+          clearTimeout(timeout);
+          done(false);
+        };
+        req.onsuccess = function(e) {
+          clearTimeout(timeout);
+          const oldDb = e.target.result;
+          if (!oldDb.objectStoreNames.contains("meters")) {
+            oldDb.close();
+            done(false);
             return;
           }
-          const tx = v3Db.transaction("meters", "readonly");
+          const tx = oldDb.transaction("meters", "readonly");
           const store = tx.objectStore("meters");
           const getAll = store.getAll();
           getAll.onsuccess = function() {
             const recs = getAll.result || [];
-            v3Db.close();
+            oldDb.close();
             if (recs.length === 0) {
-              showNoDataBanner();
+              done(false);
               return;
             }
             const writeTx = db.transaction("meters", "readwrite");
             const writeStore = writeTx.objectStore("meters");
-            for (let i = 0; i < recs.length; i++) writeStore.add(recs[i]);
+            for (let i = 0; i < recs.length; i++) {
+              writeStore.add(recs[i]);
+            }
             writeTx.oncomplete = function() {
-              const statusBox = document.getElementById('statusContainer');
-              const statusText = document.getElementById('statusText');
-              statusBox.className = "bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
-              statusText.innerHTML = `<span>✅ <b>${recs.length.toLocaleString()}</b> Records Offline Ready</span>`;
+              setReadyBanner(recs.length);
+              done(true);
             };
+            writeTx.onerror = () => done(false);
+          };
+          getAll.onerror = () => {
+            oldDb.close();
+            done(false);
           };
         };
-        v3Req.onerror = function() {
-          showNoDataBanner();
-        };
-      } catch (e) {
-        showNoDataBanner();
+      } catch (err) {
+        clearTimeout(timeout);
+        done(false);
       }
+    }
+
+    function setReadyBanner(count) {
+      const statusBox = document.getElementById('statusContainer');
+      const statusText = document.getElementById('statusText');
+      statusBox.className = "bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
+      statusText.innerHTML = `<span>✅ <b>${count.toLocaleString()}</b> Records Offline Ready</span>`;
     }
 
     function showNoDataBanner() {
@@ -764,8 +793,7 @@
         await flushBatch();
 
         progressBox.classList.add('hidden');
-        statusBox.className = "bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
-        statusText.innerHTML = `<span>✅ <b>${rowCount.toLocaleString()}</b> Records Offline Ready</span>`;
+        setReadyBanner(rowCount);
 
       } catch (err) {
         statusBox.className = "bg-red-50 border border-red-200 text-red-800 text-xs px-3 py-2 rounded-xl space-y-1.5";
