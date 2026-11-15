@@ -210,28 +210,29 @@
               <span id="resConsumerId" class="font-semibold text-slate-800 font-mono"></span>
             </div>
             <div>
-              <span class="text-xs text-slate-500 block">Division</span>
-              <span id="resDivision" class="font-semibold text-slate-800"></span>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
               <span class="text-xs text-slate-500 block">Old Meter No</span>
               <span id="resOldMeter" class="font-semibold text-slate-800 font-mono"></span>
             </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
             <div>
               <span class="text-xs text-slate-500 block">New Meter No</span>
               <span id="resNewMeter" class="font-semibold text-slate-800 font-mono"></span>
             </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
             <div>
               <span class="text-xs text-slate-500 block">Barcode Sticker</span>
               <span id="resBarcode" class="font-semibold text-slate-800 font-mono"></span>
             </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 border-t border-slate-100 pt-2.5">
             <div>
-              <span class="text-xs text-slate-500 block">Technician Name</span>
-              <span id="resTechnician" class="font-semibold text-slate-800"></span>
+              <span class="text-xs text-slate-500 block">Division</span>
+              <span id="resDivision" class="font-bold text-blue-800"></span>
+            </div>
+            <div>
+              <span class="text-xs text-slate-500 block">Updated By (Tech)</span>
+              <span id="resTechnician" class="font-bold text-blue-800"></span>
             </div>
           </div>
         </div>
@@ -271,37 +272,6 @@
     let db = null;
     let audioCtx = null;
     let scanMode = localStorage.getItem("qcScanMode") || "single";
-    let divColIndex = -1;
-    let techColIndex = -1;
-
-    function resolveDynamicHeaderIndices() {
-      try {
-        const hStr = localStorage.getItem("miReportHeaders");
-        if (!hStr) return;
-        const headers = JSON.parse(hStr);
-        if (!Array.isArray(headers)) return;
-
-        // Match Division column (avoiding Sub Division unless exact Division isn't found)
-        let exactDiv = headers.findIndex(h => h.trim().toLowerCase() === 'division' || h.trim().toLowerCase() === 'division name');
-        if (exactDiv === -1) {
-          exactDiv = headers.findIndex(h => h.toLowerCase().includes('division') && !h.toLowerCase().includes('sub'));
-        }
-        divColIndex = exactDiv;
-
-        // Match Technician / Installer Name column
-        let exactTech = headers.findIndex(h => {
-          const l = h.trim().toLowerCase();
-          return l === 'technician name' || l === 'technician' || l === 'installer name' || l === 'installer' || l === 'field executive name';
-        });
-        if (exactTech === -1) {
-          exactTech = headers.findIndex(h => {
-            const l = h.toLowerCase();
-            return (l.includes('technician') || l.includes('installer') || l.includes('lineman')) && !l.includes('id') && !l.includes('mobile') && !l.includes('code');
-          });
-        }
-        techColIndex = exactTech;
-      } catch (e) {}
-    }
 
     function setScanMode(mode) {
       scanMode = mode;
@@ -341,7 +311,6 @@
 
     function checkAuth() {
       setScanMode(scanMode);
-      resolveDynamicHeaderIndices();
       if (sessionStorage.getItem("isAppUnlocked") === "true") {
         document.getElementById('loginScreen').style.display = 'none';
         document.getElementById('appContainer').style.display = 'block';
@@ -758,7 +727,6 @@
             const cleanHeaders = r.map(h => clean(h));
             try {
               localStorage.setItem("miReportHeaders", JSON.stringify(cleanHeaders));
-              resolveDynamicHeaderIndices();
             } catch (e) {}
             return;
           }
@@ -767,13 +735,13 @@
           const cleanedRow = r.map(cell => clean(cell));
 
           batch.push({
+            division: cleanedRow[4],
             consumerId: cleanedRow[19],
             consumerName: cleanedRow[20],
-            division: divColIndex >= 0 ? cleanedRow[divColIndex] : '',
-            technicianName: techColIndex >= 0 ? cleanedRow[techColIndex] : '',
             barcode: (cleanedRow[62] || '').toUpperCase(),
             oldMeter: cleanedRow[64],
             newMeter: (cleanedRow[75] || '').toUpperCase(),
+            technician: cleanedRow[133],
             qcStatus: cleanedRow[134],
             contractorReject: cleanedRow[143],
             contractorDate: formatReadableDate(cleanedRow[144]),
@@ -883,20 +851,16 @@
 
         addToScannedLog(found);
 
-        if (divColIndex === -1 || techColIndex === -1) {
-          resolveDynamicHeaderIndices();
-        }
-
         const raw = Array.isArray(found.rawRow) ? found.rawRow : [];
-        const divisionVal = found.division || (divColIndex >= 0 ? raw[divColIndex] : '') || '-';
-        const techVal = found.technicianName || (techColIndex >= 0 ? raw[techColIndex] : '') || '-';
+        const divisionVal = found.division || raw[4] || '-';
+        const techVal = found.technician || raw[133] || '-';
 
         document.getElementById('resName').innerText = found.consumerName || '-';
         document.getElementById('resConsumerId').innerText = found.consumerId || '-';
-        document.getElementById('resDivision').innerText = divisionVal;
         document.getElementById('resOldMeter').innerText = found.oldMeter || '-';
         document.getElementById('resNewMeter').innerText = found.newMeter || '-';
         document.getElementById('resBarcode').innerText = found.barcode || '-';
+        document.getElementById('resDivision').innerText = divisionVal;
         document.getElementById('resTechnician').innerText = techVal;
 
         const st = document.getElementById('resStatus');
